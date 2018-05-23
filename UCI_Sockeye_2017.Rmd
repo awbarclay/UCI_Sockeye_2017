@@ -1,0 +1,100 @@
+---
+title: "2017 UCI sockeye commmercial fishery mixed stock analysis"
+author: "Andy Barclay"
+date: "May 23, 2018"
+output: html_document
+---
+
+##Set up workspace
+###Get functions
+```{r workspace setup, echo=TRUE}
+
+source("C:\\Users\\awbarclay\\Documents\\R\\GitHubCloneFunctions.R")#GCL functions
+source("V:\\Analysis\\Staff\\Andy Barclay\\R\\New Functions\\WorkspaceFolders.GCL.R")#A function I wrote
+
+```
+
+##Create output folders 
+```{r create folders, echo=TRUE}
+#WorkspaceFolders.GCL(Folders=c("Output","rubias"),Subfolders=list(rubias=c("baseline","mixture","output")),wd=getwd())
+
+```
+
+## Create locus control and get genotype data
+
+```{r locus control, echo=TRUE}
+
+#CreateLocusControl.GCL(markersuite = "S138_UCI_24SNPs", username ="awbarclay", password = password)#Locus control
+
+#LOKI2R.GCL(sillyvec="SCIMA17",username="awbarclay",password)#Pull Data from LOKI
+
+#save.image("V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Mixture/2017 UCIfisheryMixtures/UCI_Sockeye_2017/UCI_Sockeye_2017.Rdata")
+
+load("V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Mixture/2017 UCIfisheryMixtures/UCI_Sockeye_2017/UCI_Sockeye_2017.Rdata")
+
+loci24 <- LocusControl$locusnames
+loci24
+
+```
+
+##Data cleanup
+###Check initial sample size
+```{r initial sample size, echo=TRUE}
+
+ColSize<-data.frame(row.names = "SCIMA17")
+ColSize$Original_N <- sapply(paste("SCIMA17",".gcl",sep=''), function(x) get(x)$n)
+ColSize
+
+```
+
+###Removing individuals with <80% of loci with gentotypes
+```{r missloci,echo=TRUE}
+
+MissLOCI=RemoveIndMissLoci.GCL(sillyvec="SCIMA17",proportion=0.8)
+MissLOCI
+
+ColSize$AfterMissLoci_N <- sapply(paste("SCIMA17",".gcl",sep=''), function(x) get(x)$n)
+ColSize
+
+```
+
+###Check for duplicate individuals and remove them
+
+```{r dupckeck, echo=TRUE}
+
+CheckDupWithinSilly.GCL(sillyvec="SCIMA17",loci=loci24,quantile=NULL,minproportion=0.99)
+
+RemoveIDs.GCL(silly="SCIMA17",IDs=6462)#Two duplicates sets identified but remove only one from the set with IDs that are close
+
+ColSize$Final_N <- sapply(paste("SCIMA17",".gcl",sep=''), function(x) get(x)$n)
+ColSize
+
+```
+
+###Combine MHCs and mitochondiral markers
+
+```{r combine loci,results="hide"}
+
+ CombineLoci.GCL(sillyvec="SCIMA17",markerset=c("One_MHC2_190","One_MHC2_251"),update=TRUE)
+ CombineLoci.GCL(sillyvec="SCIMA17",markerset=c("One_CO1","One_Cytb_17","One_Cytb_26"),update=TRUE)
+
+```
+
+###Create locus list for MSA
+```{r final locus vector}
+
+loci<-LocusControl$locusnames
+loci
+
+```
+
+##Setup mixtures
+###Create vector of mixture names
+```{r mixvec, echo=FALSE}
+
+mixvec<-c("Drift","Drift")
+
+```
+
+
+
