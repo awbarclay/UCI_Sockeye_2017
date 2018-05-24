@@ -171,7 +171,7 @@ groups <- c("Crescent","West","JCL","SusYen","Fish","KTNE","Kenai","Kasilof")#Re
 
 groupvec <- groupvec#Same length as the number of baseline pops indicating the reporting group for each pop.
 
-GrCol <- GrCol#Reporting group colors to use for plotting results
+GrCol <- colors()[GrCol]#Reporting group colors to use for plotting results
 
 baseline <- create_rubias_baseline(sillyvec=PooledNames71,loci=loci,group_names = groups,groupvec = groupvec,baseline_name = "CI71pops24loci")
 
@@ -201,8 +201,9 @@ repunit_trace<-set_names(lapply(mixvec,function(mix){
 
 ```
 ##Harvest numbers
+###Get harvest data
 Here I'm getting harvest numbers for apply the estimates to create stock specific harvest esimtate for each mixture and I created an [OceanAK](https://oceanak.dfg.alaska.local) report that pulls sockeye salmon harvest numbers for each fishing day and statisticl area in Cook Inlet.  The results of this report are saved in long format [here](2017 UCI commercial harvest report_5.8.18.csv) 
-```{r get harvest numbers}
+```{r harvest data}
 
 harvests<-read_csv("2017 UCI commercial harvest report_5.8.18.csv") %>% 
   select(year="Batch Year", month_day="Date Fishing Began (MM/DD)",gear_type="Gear Name",stat_area="Stat Area",stat_area_name="Stat Area Name",harvest="Number Of Animals (sum)") %>% 
@@ -212,8 +213,8 @@ harvests<-read_csv("2017 UCI commercial harvest report_5.8.18.csv") %>%
 
 ```
 
-##Check sample dates for each capture_location
-```{r}
+###Check harvest dates sampled for each capture_location
+```{r sample dates}
 bind_rows(lapply(mixvec,function(mix){
   
   get(paste0(mix,".gcl"))$attributes %>% 
@@ -226,9 +227,9 @@ bind_rows(lapply(mixvec,function(mix){
 ```
 
 
-##Get sequences of represented harvest dates
+###Get sequences of represented harvest dates
 These are the potential havest dates within 7 days of the first and last sample date to use when calculating represented harvest numbers. If there is more than one capture location for a mixture, use the latest start sample date and the earliest stop sample date for calculating min and max represented dates.  The actual represented harvest dates will be included in the harvest objects for each mixture.
-```{r }
+```{r represened harvest dates}
 
 rep_dates<-sapply(mixvec,function(mix){
   
@@ -241,9 +242,9 @@ rep_dates<-sapply(mixvec,function(mix){
   
   week=7*day;#seconds in a week
   
-  if(max(dates$min_date)-min(dates$min_date)>7){min_date=min(dates$min_date)}else{min_date=max(dates$min_date)-week_calc};
+  if(max(dates$min_date)-min(dates$min_date)>7){min_date=min(dates$min_date)}else{min_date=max(dates$min_date)-week};
   
-  if(max(dates$max_date)-min(dates$max_date)>7){max_date=max(dates$max_date)}else{max_date=min(dates$max_date)+week_calc};
+  if(max(dates$max_date)-min(dates$max_date)>7){max_date=max(dates$max_date)}else{max_date=min(dates$max_date)+week};
   
   as.Date(seq(min_date,max_date,by=day))
   
@@ -253,31 +254,85 @@ bind_rows(lapply(rep_dates,FUN=range))#Range of represented dates
 
 ```
 
-##Calculate harvest represented for each mixture
+###Calculate harvest represented for each mixture
 One thing to note about the stinking drift data is that there is a wonky stat code (24461), this is an error in the fish ticket database (fishermen put the wrong code in). Usually what we do is lump it in with the previous day’s 24460 harvest. (Email from Aaron Dupuis 1/11/2017)
-```{r district-wide drift harvest}
+```{r harvest info}
 
-
-Drift17_har <- harvests %>% filter(stat_area%in%c("24460","24461")&date%in%rep_dates$Drift17)%>% 
-    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
-     mutate(mix_collection="Drift17",total_harvest=sum(filter(harvests,gear_type=="Drift gillnet"&stat_area%in%c("24460","24461","24510"))$harvest))#Note: the number of days is 20, but actually it's 15 because of the 24461 stat area, Chinitna Bay (24510) is not represented by the mixture
+harvest_df<-bind_rows(
   
-
-Drift_Corridor17_har <- harvests %>% filter(gear_type=="Drift gillnet",stat_area%in%c("24456","24457")&date%in%rep_dates$Drift_Corridor17)%>% 
+  #Drift(district-wide)
+  harvests %>% filter(stat_area%in%c("24460","24461")&date%in%rep_dates$Drift17)%>% 
     summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
-     mutate(mix_collection="Drift_Corridor17",total_harvest=sum(filter(harvests,gear_type=="Drift gillnet"&stat_area%in%c("24456","24457"))$harvest))
-
-West_Kalgin17_har <- harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24530","24550","24555","24560","24610","24620")&date%in%rep_dates$West_Kalgin17)%>% 
+     mutate(mixture_collection="Drift17",total_harvest=sum(filter(harvests,gear_type=="Drift gillnet"&stat_area%in%c("24460","24461","24510"))$harvest)),#Note: the number of days is 20, but actually it's 15 because of the 24461 stat area, Chinitna Bay (24510) is not represented by the mixture
+  
+  #Drift(corridor-only)
+  harvests %>% filter(gear_type=="Drift gillnet",stat_area%in%c("24456","24457")&date%in%rep_dates$Drift_Corridor17)%>% 
     summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
-     mutate(mix_collection="West_Kalgin17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24510","24530","24550","24555","24560","24610","24620"))$harvest))
+     mutate(mixture_collection="Drift_Corridor17",total_harvest=sum(filter(harvests,gear_type=="Drift gillnet"&stat_area%in%c("24456","24457"))$harvest)),
+  
+  #West/Kalgin subdistricts
+  harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24530","24550","24555","24560","24610","24620")&date%in%rep_dates$West_Kalgin17)%>%
+    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>%
+    mutate(mixture_collection="West_Kalgin17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24510","24530","24550","24555","24560","24610","24620"))$harvest)),#Note: Chinitna Bay (24510) is not represented by the mixture
+  
+   #Northern District
+  harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24710","24720","24730","24741","24742","24743","24770","24780","24790")&date%in%rep_dates$Northern_Dist17)%>% 
+    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>%
+    mutate(mixture_collection="Northern_Dist17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24710","24720","24730","24741","24742","24743","24770","24780","24790"))$harvest)),
 
-ESSN17_har <- harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24530","24550","24555","24560","24610","24620")&date%in%rep_dates$West_Kalgin17)%>% 
-    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
-     mutate(mix_collection="West_Kalgin17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24510","24530","24550","24555","24560","24610","24620"))$harvest))
+  #Upper Subdistrict (ESSN)
+  harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24421","24422","24431","24432","24441","24442")&date%in%rep_dates$ESSN17)%>% 
+    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>%
+    mutate(mixture_collection="ESSN17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24421","24422","24431","24432","24441","24442"))$harvest))
 
+) %>% mutate(mixture_collection_f=factor(mixture_collection,levels=mixvec))
 
-
-
-sort(unique(filter(harvests,gear_type=="Set gillnet")$stat_area))
+harvest_df
 ```
+
+##MSA estimates
+###Estimates for each mixture
+```{r stock comps}
+
+
+mix.sum.prop<-repunit_trace %>% 
+  filter(sweep >= 5000) %>%
+  mutate(repunit_f=factor(repunit,levels=groups),mixture_collection_f=factor(mixture_collection,levels=mixvec)) %>% 
+  group_by(mixture_collection_f,repunit_f) %>% 
+  summarise(lo5CI = quantile(repunit_ppn, probs = 0.05),
+            hi95CI = quantile(repunit_ppn, probs = 0.95),
+            sd=sd(repunit_ppn),
+            mean = mean(repunit_ppn),
+            median = quantile(repunit_ppn, probs = 0.5)) 
+  
+```  
+```{r stock harvests}
+
+mix.sum.harvest<-right_join(mix.sum.prop,harvest_df[,c("rep_harvest","mixture_collection_f")],by="mixture_collection_f") %>% 
+  group_by(mixture_collection_f,repunit_f) %>% 
+  mutate(mean=mean*rep_harvest,median=median*rep_harvest,sd=sd*rep_harvest,lo5CI=lo5CI*rep_harvest,hi95CI=hi95CI*rep_harvest)
+
+```
+ 
+###Plot mixture estimates
+```{r mixture estimate plots}
+
+print(
+mix.sum.harvest%>% 
+  ggplot(aes(x=repunit_f, y = mean/1000, fill =repunit_f)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  geom_bar(stat="identity",position = "dodge") +
+  geom_errorbar(aes(ymin = lo5CI/1000, ymax = hi95CI/1000, width = 0.3), position = "dodge")+
+  scale_fill_manual(name = "Reporting Group", values = GrCol) +
+  facet_wrap(~ mixture_collection_f,scales="free_y",ncol=1) +
+  ylab("Harvest (thousands)")+
+  xlab("Reporting Group")+
+  ggtitle("2017 UCI Commerical Sockeye")
+)
+
+```
+
+           
+
+
 
