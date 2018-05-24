@@ -6,21 +6,23 @@ output: html_document
 ---
 
 ##Set up workspace
-###Get functions
+###Get functions and load tidy packages
 ```{r workspace setup, echo=TRUE}
 
 source("C:\\Users\\awbarclay\\Documents\\R\\GitHubCloneFunctions.R")#GCL functions
 source("V:\\Analysis\\Staff\\Andy Barclay\\R\\New Functions\\WorkspaceFolders.GCL.R")#A function I wrote
 
+library("tidyverse")
+
 ```
 
-##Create output folders 
+###Create output folders 
 ```{r create folders, echo=TRUE}
 #WorkspaceFolders.GCL(Folders=c("Output","rubias"),Subfolders=list(rubias=c("baseline","mixture","output")),wd=getwd())
 
 ```
 
-## Create locus control and get genotype data
+###Create locus control and get genotype data
 
 ```{r locus control, echo=TRUE}
 
@@ -42,7 +44,7 @@ loci24
 ```{r initial sample size, echo=TRUE}
 
 ColSize<-data.frame(row.names = "SCIMA17")
-ColSize$Original_N <- sapply(paste("SCIMA17",".gcl",sep=''), function(x) get(x)$n)
+ColSize$Original_N <- SCIMA17.gcl$n
 ColSize
 
 ```
@@ -53,26 +55,30 @@ ColSize
 MissLOCI=RemoveIndMissLoci.GCL(sillyvec="SCIMA17",proportion=0.8)
 MissLOCI
 
-ColSize$AfterMissLoci_N <- sapply(paste("SCIMA17",".gcl",sep=''), function(x) get(x)$n)
+ColSize$AfterMissLoci_N <- SCIMA17.gcl$n
 ColSize
 
 ```
 
 ###Check for duplicate individuals and remove them
 
-```{r dupckeck, echo=TRUE}
+```{r dupckeck, echo=TRUE, message=FALSE}
 
 CheckDupWithinSilly.GCL(sillyvec="SCIMA17",loci=loci24,quantile=NULL,minproportion=0.99)
 
+```
+```{r remove duplicate fish,results="hide"}
+
 RemoveIDs.GCL(silly="SCIMA17",IDs=6462)#Two duplicates sets identified but remove only one from the set with IDs that are close
 
-ColSize$Final_N <- sapply(paste("SCIMA17",".gcl",sep=''), function(x) get(x)$n)
+```
+```{r final sample size}
+ColSize$Final_N <- SCIMA17.gcl$n
 ColSize
 
 ```
 
 ###Combine MHCs and mitochondiral markers
-
 ```{r combine loci,results="hide"}
 
  CombineLoci.GCL(sillyvec="SCIMA17",markerset=c("One_MHC2_190","One_MHC2_251"),update=TRUE)
@@ -92,7 +98,53 @@ loci
 ###Create vector of mixture names
 ```{r mixvec, echo=FALSE}
 
-mixvec<-c("Drift","Drift")
+mixvec<-c("Drift17","Drift_Corridor17","West_Kalgin17","Northern_Dist17","ESSN17")
+
+```
+
+###Get mixture IDs from attributes and create mixtures
+```{r attributes table}
+attr<-as.tibble(SCIMA17.gcl$attributes)
+attr
+
+```
+
+####Drift
+```{r Drift (district-wide),results="hide",message=FALSE}
+
+Drift17_IDs<-as.character(filter(attr,CAPTURE_LOCATION=="Drift (district-wide)")$FK_FISH_ID)
+PoolCollections.GCL(collections="SCIMA17",loci=loci,IDs=list(SCIMA17=Drift17_IDs),newname="Drift17")
+
+```
+```{r Drift (corridor-only),results="hide"}
+
+Drift_Corridor17_IDs<-as.character(filter(attr,CAPTURE_LOCATION=="Drift (expanded corridor-only)")$FK_FISH_ID)
+PoolCollections.GCL(collections="SCIMA17",loci=loci,IDs=list(SCIMA17=Drift_Corridor17_IDs),newname="Drift_Corridor17")
+
+```
+####Set gillnet
+```{r West/Kalgin Island subdistricts,results="hide"}
+
+West_Kalgin17_IDs<-as.character(filter(attr,CAPTURE_LOCATION%in%c("Kalgin Island Subdistrict","Western Subdistrict"))$FK_FISH_ID)
+PoolCollections.GCL(collections="SCIMA17",loci=loci,IDs=list(SCIMA17=West_Kalgin17_IDs),newname="West_Kalgin17")
+
+```
+```{r Northern District,results="hide"}
+
+Northern_Dist17_IDs<-as.character(filter(attr,CAPTURE_LOCATION%in%c("General Subdistrict (north)","General Subdistrict (south)","Eastern Subdistrict"))$FK_FISH_ID)
+PoolCollections.GCL(collections="SCIMA17",loci=loci,IDs=list(SCIMA17=Northern_Dist17_IDs),newname="Northern_Dist17")
+
+```
+```{r Upper Subdistrict (ESSN),results="hide"}
+
+ESSN17_IDs<-as.character(filter(attr,CAPTURE_LOCATION%in%c("Cohoe Ninilchik","North K-Beach","South K-Beach","Salamatof"))$FK_FISH_ID)
+PoolCollections.GCL(collections="SCIMA17",loci=loci,IDs=list(SCIMA17=ESSN17_IDs),newname="ESSN17")
+
+```
+###Check mixture sample sizes
+```{r mixture sample sizes,echo=FALSE}
+
+sapply(mixvec,function(mix){get(paste0(mix,".gcl"))$n})
 
 ```
 
