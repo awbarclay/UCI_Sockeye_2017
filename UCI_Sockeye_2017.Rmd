@@ -23,7 +23,6 @@ library("tidyverse")
 ```
 
 ###Create locus control and get genotype data
-
 ```{r locus control, echo=TRUE}
 
 #CreateLocusControl.GCL(markersuite = "S138_UCI_24SNPs", username ="awbarclay", password = password)#Locus control
@@ -33,6 +32,10 @@ library("tidyverse")
 #save.image("V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Mixture/2017 UCIfisheryMixtures/UCI_Sockeye_2017/UCI_Sockeye_2017.Rdata")
 
 load("V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Mixture/2017 UCIfisheryMixtures/UCI_Sockeye_2017/UCI_Sockeye_2017.Rdata")
+```
+###Create initial locus object
+The Cook Inlet genetic baseline was analyzed for a 96 SNP locus set.  To reduce analysis cost, the locus set was reduced to 24 loci with the highest FST values
+```{r initial locus object}
 
 loci24 <- LocusControl$locusnames
 loci24
@@ -50,6 +53,7 @@ ColSize
 ```
 
 ###Removing individuals with <80% of loci with gentotypes
+Fish that have gentoypes for less than 80% of loci are likely to have poor quality DNA and might introduce gentotyping errors into the mixture data and reduce the accruacy of the mixed stock analysis (MSA)
 ```{r missloci,echo=TRUE}
 
 MissLOCI=RemoveIndMissLoci.GCL(sillyvec="SCIMA17",proportion=0.8)
@@ -61,7 +65,7 @@ ColSize
 ```
 
 ###Check for duplicate individuals and remove them
-
+Fish with 99% of gentotype 
 ```{r dupckeck, echo=TRUE, message=FALSE}
 
 CheckDupWithinSilly.GCL(sillyvec="SCIMA17",loci=loci24,quantile=NULL,minproportion=0.99)
@@ -79,6 +83,7 @@ ColSize
 ```
 
 ###Combine MHCs and mitochondiral markers
+These markers are linked and have to be combined into haploid markers in the baseline analysis; therefore, they have to be combined for the the mixed stock analysis
 ```{r combine loci,results="hide"}
 
  CombineLoci.GCL(sillyvec="SCIMA17",markerset=c("One_MHC2_190","One_MHC2_251"),update=TRUE)
@@ -102,7 +107,7 @@ mixvec<-c("Drift17","Drift_Corridor17","West_Kalgin17","Northern_Dist17","ESSN17
 
 ```
 
-###Get mixture IDs from attributes and create mixtures
+###Get mixture IDs from attributes and create mixture .gcl objects
 ```{r attributes table}
 attr<-as.tibble(SCIMA17.gcl$attributes)
 attr
@@ -147,6 +152,132 @@ PoolCollections.GCL(collections="SCIMA17",loci=loci,IDs=list(SCIMA17=ESSN17_IDs)
 sapply(mixvec,function(mix){get(paste0(mix,".gcl"))$n})
 
 ```
+###Create rubias mixtures
+Creating rubias mixture list object and save as .csv files in the default directory - path = "rubias/mixture"
+```{r rubias mixtures, results="hide"}
+
+mixtures <- create_rubias_mixture(sillyvec=mixvec,loci=loci)
+
+```
+
+##Set up baseline
+Creating a rubias baseline object save as a .csv file in the default directory - path = "rubias/baseline"
+To create the baseline object I had to access objects in the [baseline workspace](V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Baseline) 
+```{r rubias baseline,results="hide"}
+
+attach("V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Baseline/CI2012Baseline.RData")#Attach to Baseline data.
+
+groups <- c("Crescent","West","JCL","SusYen","Fish","KTNE","Kenai","Kasilof")#Reporting groups
+
+groupvec <- groupvec#Same length as the number of baseline pops indicating the reporting group for each pop.
+
+GrCol <- GrCol#Reporting group colors to use for plotting results
+
+baseline <- create_rubias_baseline(sillyvec=PooledNames71,loci=loci,group_names = groups,groupvec = groupvec,baseline_name = "CI71pops24loci")
+
+detach(pos=match(x="file:V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Baseline/CI2012Baseline.RData",table=search()))#Detach from baseline data.
+
+```
+##Analyze mixtures in rubias
+Analyzing mixture without using the bias correction (method="MCMC") for 25,000 iterations (reps), burning the first 5,000 iterations (burn_in), and thining (sample_int_Pi) by 10 to reduce the size of the results objects.
+```{r anlyze mixtures, results="hide"}
+
+run_rubias_mixture(reference=baseline,mixture=mixtures,gen_start_col=5, method = "MCMC", 
+                   alle_freq_prior = list(const_scaled = 1), reps = 25000, burn_in = 5000, 
+                   pb_iter = 100, sample_int_Pi = 10, pi_prior_pseudo_count_sum = 1, 
+                   path = "rubias/output")
+
+```
+
+##Get reporting group results
+```{r get results}
+
+repunit_trace<-set_names(lapply(mixvec,function(mix){
+  read_csv(paste0("rubias/output/",mix,"_repunit_trace.csv")) %>% 
+    mutate(mixture_collection=mix) %>% 
+    gather(key="repunit",value="repunit_ppn",Crescent,West,JCL,SusYen,Fish,KTNE,Kenai,Kasilof,-sweep)
+  }),mixvec) %>% 
+    bind_rows()
+
+```
+##Harvest numbers
+Here I'm getting harvest numbers for apply the estimates to create stock specific harvest esimtate for each mixture and I created an [OceanAK](https://oceanak.dfg.alaska.local) report that pulls sockeye salmon harvest numbers for each fishing day and statisticl area in Cook Inlet.  The results of this report are saved in long format [here](2017 UCI commercial harvest report_5.8.18.csv) 
+```{r get harvest numbers}
+
+harvests<-read_csv("2017 UCI commercial harvest report_5.8.18.csv") %>% 
+  select(year="Batch Year", month_day="Date Fishing Began (MM/DD)",gear_type="Gear Name",stat_area="Stat Area",stat_area_name="Stat Area Name",harvest="Number Of Animals (sum)") %>% 
+  separate(month_day, c("day","month"), sep="-") %>% 
+  mutate(month=sapply(month,function(mo){match(mo, month.abb)})) %>% 
+  mutate(date=as.Date(paste(month, day , year, sep = "." ), format = "%m.%d.%Y"))
+
+```
+
+##Check sample dates for each capture_location
+```{r}
+bind_rows(lapply(mixvec,function(mix){
+  
+  get(paste0(mix,".gcl"))$attributes %>% 
+    as.tibble() %>% 
+    group_by(CAPTURE_LOCATION) %>% 
+    summarize(min_date=min(CAPTURE_DATE),max_date=max(CAPTURE_DATE))
+  
+  }))
+
+```
 
 
+##Get sequences of represented harvest dates
+These are the potential havest dates within 7 days of the first and last sample date to use when calculating represented harvest numbers. If there is more than one capture location for a mixture, use the latest start sample date and the earliest stop sample date for calculating min and max represented dates.  The actual represented harvest dates will be included in the harvest objects for each mixture.
+```{r }
+
+rep_dates<-sapply(mixvec,function(mix){
+  
+  dates=get(paste0(mix,".gcl"))$attributes %>% 
+    as.tibble() %>% 
+    group_by(CAPTURE_LOCATION) %>% 
+    summarize(min_date=min(CAPTURE_DATE),max_date=max(CAPTURE_DATE));
+  
+  day=60*60*24;#seconds in a day
+  
+  week=7*day;#seconds in a week
+  
+  if(max(dates$min_date)-min(dates$min_date)>7){min_date=min(dates$min_date)}else{min_date=max(dates$min_date)-week_calc};
+  
+  if(max(dates$max_date)-min(dates$max_date)>7){max_date=max(dates$max_date)}else{max_date=min(dates$max_date)+week_calc};
+  
+  as.Date(seq(min_date,max_date,by=day))
+  
+})
+
+bind_rows(lapply(rep_dates,FUN=range))#Range of represented dates
+
+```
+
+##Calculate harvest represented for each mixture
+One thing to note about the stinking drift data is that there is a wonky stat code (24461), this is an error in the fish ticket database (fishermen put the wrong code in). Usually what we do is lump it in with the previous day’s 24460 harvest. (Email from Aaron Dupuis 1/11/2017)
+```{r district-wide drift harvest}
+
+
+Drift17_har <- harvests %>% filter(stat_area%in%c("24460","24461")&date%in%rep_dates$Drift17)%>% 
+    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
+     mutate(mix_collection="Drift17",total_harvest=sum(filter(harvests,gear_type=="Drift gillnet"&stat_area%in%c("24460","24461","24510"))$harvest))#Note: the number of days is 20, but actually it's 15 because of the 24461 stat area, Chinitna Bay (24510) is not represented by the mixture
+  
+
+Drift_Corridor17_har <- harvests %>% filter(gear_type=="Drift gillnet",stat_area%in%c("24456","24457")&date%in%rep_dates$Drift_Corridor17)%>% 
+    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
+     mutate(mix_collection="Drift_Corridor17",total_harvest=sum(filter(harvests,gear_type=="Drift gillnet"&stat_area%in%c("24456","24457"))$harvest))
+
+West_Kalgin17_har <- harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24530","24550","24555","24560","24610","24620")&date%in%rep_dates$West_Kalgin17)%>% 
+    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
+     mutate(mix_collection="West_Kalgin17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24510","24530","24550","24555","24560","24610","24620"))$harvest))
+
+ESSN17_har <- harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24530","24550","24555","24560","24610","24620")&date%in%rep_dates$West_Kalgin17)%>% 
+    summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>% 
+     mutate(mix_collection="West_Kalgin17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24510","24530","24550","24555","24560","24610","24620"))$harvest))
+
+
+
+
+sort(unique(filter(harvests,gear_type=="Set gillnet")$stat_area))
+```
 
