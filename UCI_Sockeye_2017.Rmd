@@ -315,6 +315,7 @@ mix.sum.harvest<-right_join(mix.sum.prop,harvest_df[,c("rep_harvest","mixture_co
 ```
  
 ###Plot mixture estimates
+####Barplot
 ```{r mixture estimate plots}
 
 print(
@@ -331,8 +332,113 @@ mix.sum.harvest%>%
 )
 
 ```
+####Bubble plot
+```{r unpresented harvests, hide=TRUE}
 
-           
+mix.sum.harvest_unrep<-harvest_df %>% 
+  group_by(mixture_collection_f) %>% 
+  summarise(mean=total_harvest-rep_harvest,rep_harvest=rep_harvest) %>% 
+  mutate(repunit_f="Unrepresented",lo5CI=0,hi95CI=0,sd=0,median=0) %>% 
+  full_join(mix.sum.harvest) %>% 
+  mutate(repunit_f=factor(repunit_f,levels=c(groups,"Unrepresented")),mixture_collection_f=factor(mixture_collection_f,levels=c("Northern_Dist17","West_Kalgin17","Drift17","Drift_Corridor17","ESSN17"))) %>% 
+  arrange(mixture_collection_f,repunit_f)
 
+mix.sum.harvest_unrep
+
+```
+```{r create bubble plot of harvsts, fig.height=5.75, fig.width=9, message=FALSE, warning=FALSE, paged.print=FALSE}
+zmax <- max(mix.sum.harvest_unrep$mean, na.rm = TRUE)
+bubble_range <- 30
+
+
+mix.sum.harvest_unrep %>% 
+  ggplot(aes(x = repunit_f, y = mixture_collection_f, size = mean, color = repunit_f)) + 
+  geom_point() + 
+  scale_size_continuous(name = "Harvest", limits = c(0, 1000000), breaks = c(100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000,200000,500000), range = c(0, bubble_range), labels = c("100", "200", "500", "1,000", "2,000", "5,000", "10,000", "20,000", "50,000", "100,000","200,000","500,000"))+
+  scale_color_manual(values = c(GrCol,"black"), guide = FALSE) +
+  scale_x_discrete(name = "Reporting Group", labels = c(groups,"unanalyzed")) +
+  scale_y_discrete(name = "Fishery",labels =c("Upper Subdistrict\nset","Drift\n(corridor only)","Drift\n(excluding\ncorridor-only)","Western & Kalgin Island\nsubdistricts\nset","Northern District\nset")  ) + #Strata[c(3,4,2,1,5,6,8,7)]
+  theme(axis.text.x = element_text(size = rel(1.2), angle = 90, hjust =.5, vjust = 0.5)) +
+  theme(axis.text.y = element_text(size = rel(1.3))) +
+  theme(axis.title.y = element_text(size = rel(1.7), angle = 90)) +
+  theme(axis.title.x = element_text(size = rel(1.7), angle = 00)) +
+  theme(legend.title = element_text(size = rel(1.7), angle = 00)) +
+  theme(text = element_text(family = "serif"))
+
+ggsave(filename = "2017HarvestBubblePlot.jpg",plot=last_plot(),device="jpeg",width = 9, height = 5.75,units="in",path=getwd())
+
+```
+##Annual harvest estimates
+###2017 harvest by stock
+```{r annual stratified estimates}
+
+stratified_annual<- repunit_trace %>% 
+  filter(sweep >= 5000) %>% 
+  mutate(repunit_f = factor(x=repunit,levels=groups))%>%
+  full_join(harvest_df, by = c("mixture_collection" = "mixture_collection"))%>%
+  mutate(mix_repunit_har=repunit_ppn*rep_harvest,UCI_har=sum(unique(rep_harvest)))%>%
+  group_by(sweep,repunit_f) %>% 
+  summarise(annual_repunit_ppn=sum(mix_repunit_har)/unique(UCI_har),UCI_har=unique(UCI_har)) %>% #Weighted trace
+  group_by(repunit_f) %>% 
+  summarise(mean = mean(annual_repunit_ppn),
+            sd=sd(annual_repunit_ppn),
+            lo5CI = quantile(annual_repunit_ppn, probs = 0.05),
+            hi95CI = quantile(annual_repunit_ppn, probs = 0.95),
+            median = quantile(annual_repunit_ppn, probs = 0.5)
+            ,UCI_har=unique(UCI_har))
+  
+```
+
+###Get pre 2017 annual estimates
+```{r pre 2017 annual}
+
+attach("V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Mixture/2016 UCIfisheryMixtures/2016UCIfisheryMixtureAnalysis.RData")#Attach to 2016 fishery analysis to get overall harvest from 2005-2016
+  
+Annual05_16 <- as.tibble(cbind(repunit=dimnames(yearlyconv05_16)[[1]],Harvest=as.double(yearlyconv05_16),Year=sort(rep(2005:2016,9)))) %>% 
+  mutate(Harvest=as.double(Harvest),repunit_f=factor(repunit,levels=c("Unanalyzed",groups))) 
+ 
+detach()
+ 
+```
+###Combine estimates from all years
+```{r 2017 unanalyzed}
+
+Unanalyzed<-summarise(harvest_df,Harvest=(sum(total_harvest)-sum(rep_harvest))/1000000) %>% #2017 unanalyzed harvest in millions of fish
+  mutate(repunit_f="Unanalyzed")
+```
+```{r All annual est}
+
+Annual_All<-stratified_annual %>% 
+  group_by(repunit_f) %>% 
+  summarise(Harvest=(mean*UCI_har)/1000000) %>% 
+  bind_rows(Unanalyzed) %>% 
+  mutate(repunit_f=factor(repunit_f,levels=c("Unanalyzed",groups)),Year="2017") %>% 
+  bind_rows(Annual05_16[,-1])
+
+```
+
+
+###Stacked bar plot of annual harvests
+```{r fig.height=5.75, fig.width=9}
+
+Annual_All %>% 
+  ggplot(aes(x=Year,y=Harvest,fill=repunit_f))+
+  geom_bar(stat="identity", position = "stack")+
+  scale_fill_manual(name = "Reporting\nGroup", values = c("black",GrCol))+
+  scale_y_continuous(breaks=1:6,limits = c(0, 6))+
+  ylab("Harvest (millions)")+
+  theme(axis.text.y = element_text(size = rel(1.3))) +
+  theme(axis.title.y = element_text(size = rel(1.7), angle = 90)) +
+  theme(axis.title.x = element_text(size = rel(1.7), angle = 00)) +
+  theme(legend.title = element_text(size = rel(1.7), angle = 00)) +
+  theme(text = element_text(family = "serif"))
+
+ggsave(filename = "AnnualHarvestPlot05_17.jpg",plot=last_plot(),device="jpeg",width = 9, height = 5.75,units="in",path=getwd())
+
+```
+
+
+
+?scale_y_continuous
 
 
