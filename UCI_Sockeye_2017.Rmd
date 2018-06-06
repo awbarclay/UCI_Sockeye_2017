@@ -17,7 +17,7 @@ library("tidyverse")
 ```
 
 ###Create output folders 
-```{r create folders, echo=TRUE}
+```{r create folders, echo=TRUE, message=FALSE}
 #WorkspaceFolders.GCL(Folders=c("Output","rubias"),Subfolders=list(rubias=c("baseline","mixture","output")),wd=getwd())
 
 ```
@@ -65,7 +65,7 @@ ColSize
 ```
 
 ###Check for duplicate individuals and remove them
-Fish with 99% of gentotype 
+Fish with 99% of scores that match
 ```{r dupckeck, echo=TRUE, message=FALSE}
 
 CheckDupWithinSilly.GCL(sillyvec="SCIMA17",loci=loci24,quantile=NULL,minproportion=0.99)
@@ -73,7 +73,7 @@ CheckDupWithinSilly.GCL(sillyvec="SCIMA17",loci=loci24,quantile=NULL,minproporti
 ```
 ```{r remove duplicate fish,results="hide"}
 
-RemoveIDs.GCL(silly="SCIMA17",IDs=6462)#Two duplicates sets identified but remove only one from the set with IDs that are close
+RemoveIDs.GCL(silly="SCIMA17",IDs=6462)#Remove one of the duplicates
 
 ```
 ```{r final sample size}
@@ -163,7 +163,7 @@ mixtures <- create_rubias_mixture(sillyvec=mixvec,loci=loci)
 ##Set up baseline
 Creating a rubias baseline object save as a .csv file in the default directory - path = "rubias/baseline"
 To create the baseline object I had to access objects in the [baseline workspace](V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Baseline) 
-```{r rubias baseline,results="hide"}
+```{r rubias baseline,results="hide",message=FALSE}
 
 attach("V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/Baseline/CI2012Baseline.RData")#Attach to Baseline data.
 
@@ -180,7 +180,7 @@ detach(pos=match(x="file:V:/Analysis/2_Central/Sockeye/Cook Inlet/2012 Baseline/
 ```
 ##Analyze mixtures in rubias
 Analyzing mixture without using the bias correction (method="MCMC") for 25,000 iterations (reps), burning the first 5,000 iterations (burn_in), and thining (sample_int_Pi) by 10 to reduce the size of the results objects.
-```{r anlyze mixtures, results="hide"}
+```{r anlyze mixtures, results="hide",eval=FALSE}
 
 run_rubias_mixture(reference=baseline,mixture=mixtures,gen_start_col=5, method = "MCMC", 
                    alle_freq_prior = list(const_scaled = 1), reps = 25000, burn_in = 5000, 
@@ -190,6 +190,7 @@ run_rubias_mixture(reference=baseline,mixture=mixtures,gen_start_col=5, method =
 ```
 
 ##Get reporting group results
+Reading in the rubias traces from .csv files
 ```{r get results}
 
 repunit_trace<-set_names(lapply(mixvec,function(mix){
@@ -201,9 +202,9 @@ repunit_trace<-set_names(lapply(mixvec,function(mix){
 
 ```
 ##Harvest numbers
-###Get harvest data
-Here I'm getting harvest numbers for apply the estimates to create stock specific harvest esimtate for each mixture and I created an [OceanAK](https://oceanak.dfg.alaska.local) report that pulls sockeye salmon harvest numbers for each fishing day and statisticl area in Cook Inlet.  The results of this report are saved in long format [here](2017 UCI commercial harvest report_5.8.18.csv) 
-```{r harvest data}
+###Harvest data
+Here I'm reading in harvest numbers to apply to the stock compostion estimates to create stock specific harvest esimtate for each mixture. I created an [OceanAK](https://oceanak.dfg.alaska.local) report that pulls sockeye salmon harvest numbers for each fishing day and statisticl area in Cook Inlet.  The results of this report are saved in long format [here](2017 UCI commercial harvest report_5.8.18.csv) 
+```{r harvest data, message=FALSE}
 
 harvests<-read_csv("2017 UCI commercial harvest report_5.8.18.csv") %>% 
   select(year="Batch Year", month_day="Date Fishing Began (MM/DD)",gear_type="Gear Name",stat_area="Stat Area",stat_area_name="Stat Area Name",harvest="Number Of Animals (sum)") %>% 
@@ -211,11 +212,14 @@ harvests<-read_csv("2017 UCI commercial harvest report_5.8.18.csv") %>%
   mutate(month=sapply(month,function(mo){match(mo, month.abb)})) %>% 
   mutate(date=as.Date(paste(month, day , year, sep = "." ), format = "%m.%d.%Y"))
 
+knitr::kable(head(harvests),caption="2017 UCI commercial sockeye harvests")
+
 ```
 
-###Check harvest dates sampled for each capture_location
+###Sample dates
+Here are the first and last sample date for each capture location
 ```{r sample dates}
-bind_rows(lapply(mixvec,function(mix){
+sample_dates<-bind_rows(lapply(mixvec,function(mix){
   
   get(paste0(mix,".gcl"))$attributes %>% 
     as.tibble() %>% 
@@ -224,10 +228,12 @@ bind_rows(lapply(mixvec,function(mix){
   
   }))
 
+knitr::kable(sample_dates,caption="Sample Dates")
+
 ```
 
 
-###Get sequences of represented harvest dates
+###Represented harvest dates
 These are the potential havest dates within 7 days of the first and last sample date to use when calculating represented harvest numbers. If there is more than one capture location for a mixture, use the latest start sample date and the earliest stop sample date for calculating min and max represented dates.  The actual represented harvest dates will be included in the harvest objects for each mixture.
 ```{r represened harvest dates}
 
@@ -250,12 +256,13 @@ rep_dates<-sapply(mixvec,function(mix){
   
 })
 
-bind_rows(lapply(rep_dates,FUN=range))#Range of represented dates
+knitr::kable(bind_rows(lapply(rep_dates,FUN=range)),caption="Range of Represented Harvest Dates")#Range of represented dates
 
 ```
 
-###Calculate harvest represented for each mixture
-One thing to note about the stinking drift data is that there is a wonky stat code (24461), this is an error in the fish ticket database (fishermen put the wrong code in). Usually what we do is lump it in with the previous day’s 24460 harvest. (Email from Aaron Dupuis 1/11/2017)
+###Calculate harvest represented
+Calculating the represented harvest for each mixture.
+"One thing to note about the stinking drift data is that there is a wonky stat code (24461), this is an error in the fish ticket database (fishermen put the wrong code in). Usually what we do is lump it in with the previous day's 24460 harvest." (Email from Aaron Dupuis 1/11/2017)
 ```{r harvest info}
 
 harvest_df<-bind_rows(
@@ -285,15 +292,16 @@ harvest_df<-bind_rows(
     summarise(rep_harvest=sum(harvest),ndays=length(unique(date)),start_date=min(date),end_date=max(date)) %>%
     mutate(mixture_collection="ESSN17",total_harvest=sum(filter(harvests,gear_type=="Set gillnet"&stat_area%in%c("24421","24422","24431","24432","24441","24442"))$harvest))
 
-) %>% mutate(mixture_collection_f=factor(mixture_collection,levels=mixvec))
+) %>% 
+  mutate(mixture_collection_f=factor(mixture_collection,levels=mixvec)) %>% 
+  select(mixture_collection_f,total_harvest,rep_harvest,start_date,end_date,ndays)
 
-harvest_df
+knitr::kable(harvest_df)
 ```
 
 ##MSA estimates
-###Estimates for each mixture
+###Stock compostions for each mixture
 ```{r stock comps}
-
 
 mix.sum.prop<-repunit_trace %>% 
   filter(sweep >= 5000) %>%
@@ -310,20 +318,26 @@ mix.sum.prop<-repunit_trace %>%
 
 mix.sum.harvest<-right_join(mix.sum.prop,harvest_df[,c("rep_harvest","mixture_collection_f")],by="mixture_collection_f") %>% 
   group_by(mixture_collection_f,repunit_f) %>% 
-  mutate(mean=mean*rep_harvest,median=median*rep_harvest,sd=sd*rep_harvest,lo5CI=lo5CI*rep_harvest,hi95CI=hi95CI*rep_harvest)
+  mutate(mean_har=mean*rep_harvest,median_har=median*rep_harvest,sd_har=sd*rep_harvest,lo5CI_har=lo5CI*rep_harvest,hi95CI_har=hi95CI*rep_harvest)
 
+write_excel_csv(mix.sum.harvest %>% 
+                  mutate(mean=mean*100,sd=sd*100,lo5CI=lo5CI*100,hi95CI=hi95CI*100) %>% 
+                  select(mixture_collection_f,repunit_f,mean,lo5CI,hi95CI,sd,mean_har,lo5CI_har,hi95CI_har,sd_har)
+                ,"Output/StockSpecificHarvests_by_mixture.csv")
+
+knitr::kable(head(mix.sum.harvest))
 ```
  
 ###Plot mixture estimates
 ####Barplot
-```{r mixture estimate plots}
+```{r mixture estimate plots, fig.height=11, fig.width=8}
 
 print(
 mix.sum.harvest%>% 
-  ggplot(aes(x=repunit_f, y = mean/1000, fill =repunit_f)) +
+  ggplot(aes(x=repunit_f, y = mean_har/1000, fill =repunit_f)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   geom_bar(stat="identity",position = "dodge") +
-  geom_errorbar(aes(ymin = lo5CI/1000, ymax = hi95CI/1000, width = 0.3), position = "dodge")+
+  geom_errorbar(aes(ymin = lo5CI_har/1000, ymax = hi95CI_har/1000, width = 0.3), position = "dodge")+
   scale_fill_manual(name = "Reporting Group", values = GrCol) +
   facet_wrap(~ mixture_collection_f,scales="free_y",ncol=1) +
   ylab("Harvest (thousands)")+
@@ -332,20 +346,26 @@ mix.sum.harvest%>%
 )
 
 ```
+
 ####Bubble plot
-```{r unpresented harvests, hide=TRUE}
+Applying harvests to stock composition estimates
+```{r unpresented harvests, hide=TRUE,message=FALSE}
 
 mix.sum.harvest_unrep<-harvest_df %>% 
   group_by(mixture_collection_f) %>% 
-  summarise(mean=total_harvest-rep_harvest,rep_harvest=rep_harvest) %>% 
-  mutate(repunit_f="Unrepresented",lo5CI=0,hi95CI=0,sd=0,median=0) %>% 
+  summarise(mean_har=total_harvest-rep_harvest,rep_harvest=rep_harvest) %>% 
+  mutate(repunit_f="Unrepresented",mean=0,lo5CI=0,hi95CI=0,sd=0,median=0,lo5CI_har=0,hi95CI_har=0,sd_har=0,median_har=0) %>% 
   full_join(mix.sum.harvest) %>% 
-  mutate(repunit_f=factor(repunit_f,levels=c(groups,"Unrepresented")),mixture_collection_f=factor(mixture_collection_f,levels=c("Northern_Dist17","West_Kalgin17","Drift17","Drift_Corridor17","ESSN17"))) %>% 
+  mutate(repunit_f=factor(repunit_f,levels=c(groups,"Unrepresented")),mixture_collection_f=factor(mixture_collection_f,levels=c("Northern_Dist17","West_Kalgin17","Drift17","Drift_Corridor17","ESSN17")[5:1])) %>% 
   arrange(mixture_collection_f,repunit_f)
+
+write_excel_csv(mix.sum.harvest_unrep,"Output/MixtureHarvestSummary.csv")
 
 mix.sum.harvest_unrep
 
 ```
+Sockeye salmon harvest estimates and harvest not included in the analysis (unanalyzed) by stock (reporting group) and Upper Cook Inlet commercial fishery in 2017. Black circles indicate the portion of the total harvest from each fishery not included in the analysis (unanalyzed).
+ 
 ```{r create bubble plot of harvsts, fig.height=5.75, fig.width=9, message=FALSE, warning=FALSE, paged.print=FALSE}
 zmax <- max(mix.sum.harvest_unrep$mean, na.rm = TRUE)
 bubble_range <- 30
@@ -375,7 +395,7 @@ ggsave(filename = "2017HarvestBubblePlot.jpg",plot=last_plot(),device="jpeg",wid
 stratified_annual<- repunit_trace %>% 
   filter(sweep >= 5000) %>% 
   mutate(repunit_f = factor(x=repunit,levels=groups))%>%
-  full_join(harvest_df, by = c("mixture_collection" = "mixture_collection"))%>%
+  full_join(harvest_df, by = c("mixture_collection" = "mixture_collection_f"))%>%
   mutate(mix_repunit_har=repunit_ppn*rep_harvest,UCI_har=sum(unique(rep_harvest)))%>%
   group_by(sweep,repunit_f) %>% 
   summarise(annual_repunit_ppn=sum(mix_repunit_har)/unique(UCI_har),UCI_har=unique(UCI_har)) %>% #Weighted trace
@@ -384,10 +404,17 @@ stratified_annual<- repunit_trace %>%
             sd=sd(annual_repunit_ppn),
             lo5CI = quantile(annual_repunit_ppn, probs = 0.05),
             hi95CI = quantile(annual_repunit_ppn, probs = 0.95),
-            median = quantile(annual_repunit_ppn, probs = 0.5)
-            ,UCI_har=unique(UCI_har))
-  
+            median = quantile(annual_repunit_ppn, probs = 0.5),
+            UCI_har=unique(UCI_har))
+
 ```
+```{r table annual harvest estimates}
+write_excel_csv(stratified_annual %>% 
+               group_by(repunit_f) %>% 
+               summarise(mean=mean*UCI_har,lo5CI=lo5CI*UCI_har,hi95CI=hi95CI*UCI_har,sd=sd*UCI_har),"Output/AnnualStockSpecificHarvest2017.csv")
+               
+```
+
 
 ###Get pre 2017 annual estimates
 ```{r pre 2017 annual}
@@ -419,26 +446,86 @@ Annual_All<-stratified_annual %>%
 
 
 ###Stacked bar plot of annual harvests
+Overall Cook Inlet commercial fishery stratified harvest estimates for sockeye salmon by stock for 2005-2017.
 ```{r fig.height=5.75, fig.width=9}
 
 Annual_All %>% 
-  ggplot(aes(x=Year,y=Harvest,fill=repunit_f))+
-  geom_bar(stat="identity", position = "stack")+
-  scale_fill_manual(name = "Reporting\nGroup", values = c("black",GrCol))+
-  scale_y_continuous(breaks=1:6,limits = c(0, 6))+
-  ylab("Harvest (millions)")+
+  ggplot(aes(x=Year,y=Harvest,fill=repunit_f)) +
+  geom_bar(stat="identity", position = "stack") +
+  scale_fill_manual(name = "Reporting\nGroup", values = c("black",GrCol)) +
+  scale_y_continuous(breaks=1:6,limits = c(0, 6)) +
+  ylab("Harvest (millions)") +
   theme(axis.text.y = element_text(size = rel(1.3))) +
   theme(axis.title.y = element_text(size = rel(1.7), angle = 90)) +
   theme(axis.title.x = element_text(size = rel(1.7), angle = 00)) +
   theme(legend.title = element_text(size = rel(1.7), angle = 00)) +
   theme(text = element_text(family = "serif"))
 
-ggsave(filename = "AnnualHarvestPlot05_17.jpg",plot=last_plot(),device="jpeg",width = 9, height = 5.75,units="in",path=getwd())
+ggsave(filename = "AnnualHarvestPlot05_17.jpg",plot=last_plot(),device="jpeg",width = 9, height = 5.75, units="in", path=getwd())
 
 ```
 
+##Reporting group summary
+```{r reporting group sum}
+#How many strata had >5% contribution for each group
 
+  ReportingGroupSum <- mix.sum.harvest %>%
+    group_by(repunit_f) %>% 
+    summarise(Strata5percent=sum(mean/rep_harvest>=0.05),TotalContribution=sum(mean),PercentSampledHarvest=sum(mean)/sum(rep_harvest))
+    
+ percent_total_harvest<-mix.sum.harvest %>% 
+   mutate(total_rep_harvest=sum(harvest_df$rep_harvest)) %>% 
+   group_by(mixture_collection_f,repunit_f) %>% 
+   summarise(prop_total=mean/total_rep_harvest*100) %>% 
+   spread(mixture_collection_f,prop_total)
+   
 
-?scale_y_continuous
+```
+
+##Harvest appendix
+###Upper Subdistrict
+```{r Upper Subdistrict}
+write_excel_csv(
+
+harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24421","24422","24431","24432","24441","24442")) %>% 
+  select(-stat_area_name,-year, -day,-month,-gear_type) %>% 
+  spread(stat_area,harvest),
+
+"Output/UppperSubdistrictHarvests.csv")
+   
+```
+###WestKaglinIsland subdistricts
+```{r West&Kalgin}
+write_excel_csv(
+
+harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24510","24530","24540","24550","24555","24560","24610","24620")) %>% 
+  select(-stat_area_name,-year, -day,-month,-gear_type) %>% 
+  spread(stat_area,harvest),
+
+"Output/WestKaginSubdistrictsHarvests.csv")
+   
+```
+###Northern District
+```{r Northern District}
+write_excel_csv(
+
+harvests %>% filter(gear_type=="Set gillnet"&stat_area%in%c("24710","24720","24730","24741","24742","24743","24770","24780","24790")) %>% 
+  select(-stat_area_name,-year, -day,-month,-gear_type) %>% 
+  spread(stat_area,harvest),
+
+"Output/NorthernDistrictHarvests.csv")
+   
+```
+###Central District Drift
+```{r Central District Drift}
+write_excel_csv(
+
+harvests %>% filter(gear_type=="Drift gillnet"&stat_area%in%c("24456","24457","24460","24461","24510")) %>% 
+  select(-stat_area_name,-year, -day,-month,-gear_type) %>% 
+  spread(stat_area,harvest),
+
+"Output/CentralDistrictDriftHarvests.csv")
+   
+```
 
 
